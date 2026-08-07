@@ -18,58 +18,56 @@
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
-- [Part 1 - Launch OS Platform](#part-1---launch-os-platform)
+- [Part 1 - Launch OS Platform: Ubuntu 24.04 LTS](#part-1---launch-os-platform-ubuntu-2404-lts)
   - [Option 1: AWS EC2 Instance (Used for Demonstration)](#option-1-aws-ec2-instance-used-for-demonstration)
   - [Option 2: VirtualBox Virtual Machine](#option-2-virtualbox-virtual-machine)
-- [Part 2 - SSH Access Setup (Connect from Local Machine)](#part-2---ssh-access-setup-connect-from-local-machine)
-- [Part 3 - Install Required Tools](#part-3---install-required-tools)
-  - [3.1 System Update](#31-system-update)
-  - [3.2 Install Docker](#32-install-docker)
-  - [3.3 Install kubectl](#33-install-kubectl)
-  - [3.4 Install Helm](#34-install-helm)
-  - [3.5 Install Go](#35-install-go)
-- [Part 4 - Setup Kubernetes Platform (kind)](#part-4---setup-kubernetes-platform-kind)
+  - [Method C: VS Code Remote-SSH with SSM Proxy](#method-c-vs-code-remote-ssh-with-ssm-proxy)
+- [Part 2 - Install Required Tools](#part-2---install-required-tools)
+  - [2.1 System Update](#21-system-update)
+  - [2.2 Install Docker](#22-install-docker)
+  - [2.3 Install kubectl](#23-install-kubectl)
+  - [2.4 Install Helm](#24-install-helm)
+  - [2.5 Install Go](#25-install-go)
+- [Part 3 - Setup Kubernetes Platform (kind)](#part-3---setup-kubernetes-platform-kind)
   - [Architecture Overview](#architecture-overview)
   - [Why This Configuration](#why-this-configuration)
-  - [4.1 Install kind](#41-install-kind)
-  - [4.2 Cluster Configuration File](#42-cluster-configuration-file)
-  - [4.3 Create the Cluster](#43-create-the-cluster)
-  - [4.4 Setup Cloud Provider KIND for LoadBalancer](#44-setup-cloud-provider-kind-for-loadbalancer)
-  - [4.5 Remove Control Plane Exclusion Label](#45-remove-control-plane-exclusion-label)
-  - [4.6 Verify LoadBalancer Support](#46-verify-loadbalancer-support)
-  - [4.7 Troubleshooting Cloud Provider KIND](#47-troubleshooting-cloud-provider-kind)
-- [Part 5 - Verify Cluster Topology](#part-5---verify-cluster-topology)
-  - [5.1 Check Nodes and Labels](#51-check-nodes-and-labels)
-  - [5.2 Verify Node Labels](#52-verify-node-labels)
-  - [5.3 Check System Pods Distribution](#53-check-system-pods-distribution)
-  - [5.4 Verify Port Mappings](#54-verify-port-mappings)
-  - [5.5 Verify External Access](#55-verify-external-access-from-ec2-host)
-- [Part 6 - Understanding the Configuration](#part-6---understanding-the-configuration)
-  - [6.1 extraPortMappings](#61-extraportmappings)
-  - [6.2 Node Labels](#62-node-labels)
-  - [6.3 listenAddress Security Consideration](#63-listenaddress-0000-security-consideration)
-  - [6.4 Topology Labels](#64-topology-labels)
-- [Part 7 - Install Istio CLI (istioctl)](#part-7---install-istio-cli-istioctl)
-- [Part 8 - Kind Command Reference](#part-8---kind-command-reference)
-  - [8.1 Cluster Information Commands](#81-cluster-information-commands)
-  - [8.2 Inspect Current Cluster](#82-inspect-current-cluster)
-  - [8.3 Node Label Management](#83-node-label-management)
-  - [8.4 Create a New Cluster](#84-create-a-new-cluster)
-  - [8.5 Load Docker Images into Kind](#85-load-docker-images-into-kind)
-  - [8.6 Cluster Lifecycle Management](#86-cluster-lifecycle-management)
-  - [8.7 Debugging Commands](#87-debugging-commands)
-  - [8.8 Multiple Clusters on Same Host](#88-multiple-clusters-on-same-host)
-  - [8.9 Backup and Restore Cluster Config](#89-backup-and-restore-cluster-config)
-  - [8.10 Quick Reference Table](#810-quick-reference-table)
-- [Part 9 - Kind Administration Guide](#part-9---kind-administration-guide)
-  - [9.1 Local Container Registry](#91-local-container-registry)
-  - [9.2 Ingress Setup](#92-ingress-setup)
-  - [9.3 Resource Management](#93-resource-management)
-  - [9.4 Networking Administration](#94-networking-administration)
-  - [9.5 Storage Administration](#95-storage-administration)
-  - [9.6 Node Administration](#96-node-administration)
-  - [9.7 Known Issues and Fixes](#97-known-issues-and-fixes)
-- [Part 10 - Cleanup](#part-10---cleanup)
+  - [3.1 Install kind](#31-install-kind)
+  - [3.2 Cluster Configuration File](#32-cluster-configuration-file)
+  - [3.3 Create the Cluster](#33-create-the-cluster)
+  - [3.4 Setup Cloud Provider KIND for LoadBalancer](#34-setup-cloud-provider-kind-for-loadbalancer)
+  - [3.5 Remove Control Plane Exclusion Label](#35-remove-control-plane-exclusion-label)
+  - [3.6 Verify LoadBalancer Support](#36-verify-loadbalancer-support)
+  - [3.7 Troubleshooting Cloud Provider KIND](#37-troubleshooting-cloud-provider-kind)
+- [Part 4 - Verify and Understand Cluster Configuration](#part-4---verify-and-understand-cluster-configuration)
+  - [4.1 Check Nodes and Labels](#41-check-nodes-and-labels)
+  - [4.2 Verify Node Labels](#42-verify-node-labels)
+  - [4.3 Check System Pods Distribution](#43-check-system-pods-distribution)
+  - [4.4 Verify Port Mappings](#44-verify-port-mappings)
+  - [4.5 Verify External Access](#45-verify-external-access-from-ec2-host)
+  - [4.6 extraPortMappings](#46-extraportmappings)
+  - [4.7 Node Labels](#47-node-labels)
+  - [4.8 listenAddress Security Consideration](#48-listenaddress-0000-security-consideration)
+  - [4.9 Topology Labels](#49-topology-labels)
+- [Part 5 - Install Istio CLI (istioctl)](#part-5---install-istio-cli-istioctl)
+- [Part 6 - Cleanup](#part-6---cleanup)
+- [Part 7 - Kind Cluster Operations and Administration](#part-7---kind-cluster-operations-and-administration)
+  - [7.1 Cluster Information Commands](#71-cluster-information-commands)
+  - [7.2 Inspect Current Cluster](#72-inspect-current-cluster)
+  - [7.3 Node Label Management](#73-node-label-management)
+  - [7.4 Create a New Cluster](#74-create-a-new-cluster)
+  - [7.5 Load Docker Images into Kind](#75-load-docker-images-into-kind)
+  - [7.6 Cluster Lifecycle Management](#76-cluster-lifecycle-management)
+  - [7.7 Debugging Commands](#77-debugging-commands)
+  - [7.8 Multiple Clusters on Same Host](#78-multiple-clusters-on-same-host)
+  - [7.9 Backup and Restore Cluster Config](#79-backup-and-restore-cluster-config)
+  - [7.10 Quick Reference Table](#710-quick-reference-table)
+  - [7.11 Local Container Registry](#711-local-container-registry)
+  - [7.12 Ingress Setup](#712-ingress-setup)
+  - [7.13 Resource Management](#713-resource-management)
+  - [7.14 Networking Administration](#714-networking-administration)
+  - [7.15 Storage Administration](#715-storage-administration)
+  - [7.16 Node Administration](#716-node-administration)
+  - [7.17 Known Issues and Fixes](#717-known-issues-and-fixes)
 - [Appendix A - Minimal kind Configuration (Single Node)](#appendix-a---minimal-kind-configuration-single-node)
 - [Appendix B - High Availability kind Configuration](#appendix-b---high-availability-kind-configuration)
 - [Appendix C - Alternative Kubernetes Platforms](#appendix-c---alternative-kubernetes-platforms)
@@ -92,7 +90,8 @@
 ---
 
 
-## Part 1 - Launch OS Platform
+
+## Part 1 - Launch OS Platform: Ubuntu 24.04 LTS
 
 ### Option 1: AWS EC2 Instance (Used for Demonstration)
 
@@ -169,7 +168,7 @@ Quick connection test via SSH:
 ssh -i "your-key.pem" ubuntu@<elastic-ip>
 ```
 
-For detailed SSH setup including VS Code Remote-SSH integration, SSM-based access, port forwarding, and troubleshooting, see [Part 2 - SSH Access Setup](#part-2---ssh-access-setup-connect-from-local-machine).
+For detailed SSH setup including VS Code Remote-SSH integration, SSM-based access, port forwarding, and troubleshooting, see [Method C: VS Code Remote-SSH with SSM Proxy](#method-c-vs-code-remote-ssh-with-ssm-proxy) below.
 
 ---
 
@@ -216,14 +215,14 @@ Host istio-vm
     User <your-username>
 ```
 
-
 ---
 
-## Part 2 - SSH Access Setup (Connect from Local Machine)
 
-Throughout this lab series, all commands are executed on the remote EC2 instance — not on the local machine. This section covers establishing a reliable SSH connection from your local Windows workstation using VS Code.
+### Method C: VS Code Remote-SSH with SSM Proxy
 
-### Why SSH for This Lab
+Throughout this lab series, all commands are executed on the remote EC2 instance — not on the local machine. VS Code Remote-SSH provides a seamless development experience by connecting your local editor directly to the remote server.
+
+#### Why VS Code Remote-SSH is Recommended for This Lab
 
 | Benefit | Explanation |
 |---------|-------------|
@@ -232,18 +231,33 @@ Throughout this lab series, all commands are executed on the remote EC2 instance
 | File transfer | SCP/SFTP support for copying manifests and configs between local and remote |
 | Port forwarding | Access Kiali, Grafana, Prometheus dashboards running on the remote server via localhost |
 | Persistent sessions | Reconnect without losing context if network drops (combine with tmux/screen) |
+| Extension support | Install extensions on the remote server (YAML, Kubernetes, Docker) for full IDE experience |
+| Multi-terminal | Open multiple integrated terminals — run `kubectl port-forward` in one, edit files in another |
 
-### Prerequisites
+#### Prerequisites
 
 | Requirement | Details |
 |-------------|---------|
-| EC2 Instance | Running with Elastic IP assigned (from Part 1) |
-| Key Pair (.pem file) | Downloaded during EC2 launch |
-| Security Group | Port 22 open to your IP address |
-| VS Code | Installed on your Windows machine |
+| VS Code | Installed on your Windows machine (https://code.visualstudio.com/) |
+| Remote - SSH Extension | VS Code extension ID: `ms-vscode-remote.remote-ssh` |
+| AWS CLI v2 | Required for SSM-based SSH (https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) |
+| Session Manager Plugin | Required for SSM-based SSH (https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) |
 | OpenSSH Client | Built into Windows 10/11 (verify with `ssh -V` in PowerShell) |
+| EC2 Instance | Running with Elastic IP assigned (from Option 1 above) |
+| Key Pair (.pem file) | Downloaded during EC2 launch |
+| Security Group | Port 22 open to your IP address (for direct SSH method) |
 
-### Step 1: Prepare the SSH Key on Windows
+#### Step 1: Install Remote-SSH Extension
+
+1. Open VS Code.
+2. Press `Ctrl+Shift+X` to open the Extensions panel.
+3. Search for `Remote - SSH`.
+4. Install the extension by Microsoft (ID: `ms-vscode-remote.remote-ssh`).
+5. Reload VS Code if prompted.
+
+The extension also installs `Remote - SSH: Editing Configuration Files` as a dependency, which provides IntelliSense for SSH config files.
+
+#### Step 2: Prepare the SSH Key on Windows
 
 Locate the `.pem` key pair file downloaded during EC2 launch. Move it to a standard location:
 
@@ -274,24 +288,17 @@ icacls "$HOME\.ssh\K8s-Arbind-KP.pem"
 
 Expected: Only your username with `(R)` permission listed.
 
-### Step 2: Test Direct SSH Connection
+#### Step 3: Test Direct SSH Connection
 
 ```powershell
 ssh -i "$HOME\.ssh\K8s-Arbind-KP.pem" ubuntu@<your-elastic-ip>
 ```
 
-If connection fails:
+If connection fails, refer to the troubleshooting table at the end of this section.
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| Connection timed out | Security Group not allowing port 22 from your IP | Update inbound rule: Port 22, Source: Your IP |
-| Permission denied (publickey) | Wrong key file or wrong username | Verify key matches what was selected at launch; user is `ubuntu` for Ubuntu AMI |
-| Unprotected key file warning | Permissions not set correctly | Re-run icacls commands above |
-| Host key verification failed | IP was previously used by another instance | Remove old entry: `ssh-keygen -R <elastic-ip>` |
+#### Step 4: Create SSH Config File on Windows
 
-### Step 3: Configure SSH Config File
-
-Create or edit `C:\Users\<YourUsername>\.ssh\config`:
+Create or edit the file at `C:\Users\<YourUsername>\.ssh\config`:
 
 ```
 Host istio-lab
@@ -303,36 +310,40 @@ Host istio-lab
     ServerAliveCountMax 3
 ```
 
-**Important:** If your path contains spaces, wrap the IdentityFile value in quotes.
+**Important:** If your Windows username or path contains spaces, you MUST wrap the `IdentityFile` value in quotes. Without quotes, SSH will interpret only the part before the space as the path.
+
+#### SSH Config Parameters Explained
 
 | Parameter | Purpose |
 |-----------|---------|
-| Host | Alias name — used in commands like `ssh istio-lab` |
+| Host | Alias name — used in commands like `ssh istio-lab` and in VS Code host picker |
 | HostName | Actual IP address or DNS name of the server |
 | User | Login username (`ubuntu` for Ubuntu AMI) |
 | IdentityFile | Full path to the private key file (quote if spaces in path) |
-| ServerAliveInterval | Send keepalive packet every 60 seconds to prevent idle disconnection |
-| ServerAliveCountMax | Disconnect after 3 missed keepalive responses |
+| Port | SSH port (default 22) |
+| ServerAliveInterval | Send a keepalive packet every 60 seconds to prevent idle disconnection. AWS NAT gateways and firewalls drop idle TCP connections after ~350 seconds. Setting this to 60 ensures the connection stays alive during periods of no activity (e.g., reading documentation). |
+| ServerAliveCountMax | Disconnect after 3 consecutive missed keepalive responses. Combined with ServerAliveInterval=60, this means the connection drops after 180 seconds (3 minutes) of actual network failure — not idle time. This prevents VS Code from hanging indefinitely on a dead connection. |
 
 Test the named connection:
 ```powershell
 ssh istio-lab
 ```
 
-### Step 4: Connect via VS Code Remote-SSH
+#### Step 5: Connect via VS Code Remote-SSH
 
-1. Install the **Remote - SSH** extension in VS Code (ID: `ms-vscode-remote.remote-ssh`).
-2. Press `Ctrl+Shift+P`, type `Remote-SSH: Connect to Host...` and select it.
-3. Select `istio-lab` from the dropdown list.
-4. A new VS Code window opens. If prompted for platform, select `Linux`.
-5. Press `` Ctrl+` `` to open the integrated terminal — it runs on the remote EC2 instance.
+1. Press `Ctrl+Shift+P` to open the Command Palette.
+2. Type `Remote-SSH: Connect to Host...` and select it.
+3. Select `istio-lab` from the dropdown list (read from your SSH config file).
+4. A new VS Code window opens. If prompted for platform, select **Linux**.
+5. Wait for VS Code Server to install on the remote machine (first connection only, ~30 seconds).
+6. Press `` Ctrl+` `` to open the integrated terminal — it runs on the remote EC2 instance.
 
 **Open Remote Folders:**
 - Click File > Open Folder.
 - Navigate to any path on the remote server (e.g., `/home/ubuntu`).
 - VS Code file explorer now shows the remote filesystem.
 
-### Step 5: Port Forwarding (Access Dashboards Locally)
+#### Step 6: Port Forwarding for Dashboards
 
 When Istio observability tools are running on the remote server, access them on your local browser using VS Code port forwarding:
 
@@ -340,21 +351,36 @@ When Istio observability tools are running on the remote server, access them on 
    ```bash
    kubectl port-forward svc/kiali -n istio-system 20001:20001
    ```
-2. VS Code automatically detects the forwarded port.
+2. VS Code automatically detects the forwarded port and shows a notification.
 3. Open `http://localhost:20001` in your local browser.
 
-Common ports to forward:
+**Common ports to forward for this lab:**
 
-| Service | Remote Port | Local Access |
-|---------|-------------|--------------|
-| Kiali | 20001 | http://localhost:20001 |
-| Grafana | 3000 | http://localhost:3000 |
-| Prometheus | 9090 | http://localhost:9090 |
-| Jaeger | 16686 | http://localhost:16686 |
+| Service | Remote Port | Local Access | Purpose |
+|---------|-------------|--------------|---------|
+| Kiali | 20001 | http://localhost:20001 | Service mesh observability dashboard |
+| Grafana | 3000 | http://localhost:3000 | Metrics visualization and dashboards |
+| Prometheus | 9090 | http://localhost:9090 | Metrics collection and querying |
+| Jaeger | 16686 | http://localhost:16686 | Distributed tracing UI |
 
-### Step 6: Alternative - SSM-Based SSH (No Port 22 Exposure)
+**Manual port forwarding via VS Code UI:**
+1. Click the **PORTS** tab in the bottom panel (next to Terminal).
+2. Click **Forward a Port**.
+3. Enter the port number (e.g., 20001).
+4. VS Code creates a local tunnel to that remote port.
 
-For stronger security, AWS Systems Manager Session Manager can act as the SSH transport layer without exposing port 22.
+**Forward multiple ports simultaneously:**
+```bash
+# Run each in a separate terminal tab (Ctrl+Shift+5 to split)
+kubectl port-forward svc/kiali -n istio-system 20001:20001
+kubectl port-forward svc/grafana -n istio-system 3000:3000
+kubectl port-forward svc/prometheus -n istio-system 9090:9090
+kubectl port-forward svc/tracing -n istio-system 16686:16686
+```
+
+#### Step 7: SSM-Based SSH Alternative (No Port 22 Needed)
+
+For stronger security, AWS Systems Manager Session Manager can act as the SSH transport layer without exposing port 22 to the internet.
 
 | Aspect | Direct SSH (Port 22) | SSM-Based SSH |
 |--------|----------------------|---------------|
@@ -362,13 +388,34 @@ For stronger security, AWS Systems Manager Session Manager can act as the SSH tr
 | Requires public IP | Yes | No (works with private instances) |
 | Audit logging | Manual setup | Automatic via CloudTrail |
 | IAM-controlled access | No | Yes |
+| Network dependency | Internet to port 22 | HTTPS to SSM endpoints |
 
-**Prerequisites:**
+**Prerequisites for SSM-Based SSH:**
 - AWS CLI v2 installed on Windows
-- Session Manager Plugin installed (https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
-- Instance has IAM role with `AmazonSSMManagedInstanceCore` policy
+- Session Manager Plugin installed
+- Instance has IAM role with `AmazonSSMManagedInstanceCore` policy (configured in Step 1.1)
+- Instance has connectivity to SSM endpoints (automatic in public subnets)
 
-**SSH Config for SSM:**
+**Install AWS CLI v2 on Windows:**
+```powershell
+# Download and run the MSI installer
+msiexec.exe /i https://awscli.amazonaws.com/AWSCLIV2.msi
+
+# Verify
+aws --version
+```
+
+**Install Session Manager Plugin on Windows:**
+1. Download from: https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
+2. Run the installer.
+3. Verify:
+```powershell
+session-manager-plugin --version
+```
+
+**SSH Config for SSM-Based Access:**
+
+Add this to your `C:\Users\<YourUsername>\.ssh\config`:
 
 ```
 Host istio-lab-ssm
@@ -376,39 +423,81 @@ Host istio-lab-ssm
     User ubuntu
     IdentityFile "C:\Users\Arbind Kr. Mahato\.ssh\K8s-Arbind-KP.pem"
     ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --region ap-south-1
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
 ```
 
-Connect via VS Code Remote-SSH by selecting `istio-lab-ssm`. Once confirmed working, you can remove port 22 from the Security Group.
+Replace `<instance-id>` with your EC2 instance ID (e.g., `i-0abc123def456789`).
 
-### Step 7: Post-Connection Verification
+**How SSM Proxy Works:**
+1. `ProxyCommand` tells SSH to use `aws ssm start-session` as the transport instead of a direct TCP connection.
+2. SSM establishes a secure WebSocket tunnel through HTTPS (port 443) to the SSM endpoint.
+3. SSH then authenticates over this tunnel using your key pair.
+4. No inbound port 22 rule is needed in the Security Group.
 
-After connecting, verify the environment:
+**Connect via VS Code Remote-SSH:**
+1. Press `Ctrl+Shift+P` > `Remote-SSH: Connect to Host...`
+2. Select `istio-lab-ssm`.
+3. Once confirmed working, you can remove port 22 from the Security Group for enhanced security.
+
+#### Step 8: Post-Connection Verification
+
+After connecting (via either direct SSH or SSM), verify the environment is ready:
 
 ```bash
+# Verify user and OS
 whoami                    # Should output: ubuntu
 cat /etc/os-release | grep -E "^(NAME|VERSION)="
+
+# Verify tools (these will work after Part 2 installation)
 docker --version
 kubectl version --client
 kind version
-df -h /
-free -h
+helm version
+go version
+istioctl version --remote=false
+
+# Verify system resources
+df -h /                   # Should show sufficient disk space
+free -h                   # Should show ~16 GB total for t3a.xlarge
+nproc                     # Should show 4 CPUs
 ```
+
+#### Troubleshooting SSH Connection Issues
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| Connection timed out | Security Group not allowing port 22 from your IP | Update inbound rule: Port 22, Source: Your IP |
+| Permission denied (publickey) | Wrong key file or wrong username | Verify key matches what was selected at launch; user is `ubuntu` for Ubuntu AMI |
+| Unprotected key file warning | Permissions not set correctly | Re-run icacls commands from Step 2 |
+| Host key verification failed | IP was previously used by another instance | Remove old entry: `ssh-keygen -R <elastic-ip>` |
+| VS Code "Could not establish connection" | SSH config syntax error | Check for typos; ensure IdentityFile path is quoted if it contains spaces |
+| VS Code stuck on "Setting up SSH Host" | Firewall blocking, or remote server out of disk | Check Security Group; SSH manually to verify server health |
+| SSM "TargetNotConnected" error | SSM agent not running or IAM role missing | Verify instance has `AmazonSSMManagedInstanceCore` policy; check SSM agent: `sudo systemctl status amazon-ssm-agent` |
+| SSM "Session Manager Plugin not found" | Plugin not installed on Windows | Install from AWS docs link above |
+| Connection drops after idle period | ServerAliveInterval not configured | Add `ServerAliveInterval 60` to SSH config |
+| "Bad owner or permissions on config" | SSH config file permissions too open | Ensure only your user has access to `~/.ssh/config` |
 
 
 ---
 
 
-## Part 3 - Install Required Tools
+
+## Part 2 - Install Required Tools
 
 Execute the following on the Ubuntu instance (EC2 or VM).
 
-### 3.1 System Update
+### 2.1 System Update
 
 ```bash
 sudo apt update && sudo apt upgrade -y
 ```
 
-### 3.2 Install Docker
+### 2.2 Install Docker
+
+> **What:** Docker is the container runtime engine that manages containers on the host.
+>
+> **Why:** Kind runs Kubernetes nodes as Docker containers, making Docker the foundation of our lab environment. Every kind node (control-plane and workers) is actually a Docker container running kubelet, containerd, and Kubernetes components inside it.
 
 Reference: https://docs.docker.com/engine/install/ubuntu/
 
@@ -441,7 +530,11 @@ docker --version
 docker run --rm hello-world
 ```
 
-### 3.3 Install kubectl
+### 2.3 Install kubectl
+
+> **What:** kubectl is the Kubernetes command-line interface (CLI).
+>
+> **Why:** Every interaction with the Kubernetes cluster goes through this tool — deploying applications, inspecting pods, configuring Istio resources, checking logs, and managing the service mesh.
 
 Reference: https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
 
@@ -454,7 +547,11 @@ rm kubectl
 kubectl version --client
 ```
 
-### 3.4 Install Helm
+### 2.4 Install Helm
+
+> **What:** Helm is the Kubernetes package manager. It uses "charts" (packaged YAML templates) to deploy complex applications with a single command.
+>
+> **Why:** Used to install Istio observability addons like Kiali, Grafana, Prometheus, and Jaeger. Also commonly used for deploying application stacks in later lab modules.
 
 Reference: https://helm.sh/docs/intro/install/
 
@@ -465,9 +562,11 @@ curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 helm version
 ```
 
-### 3.5 Install Go
+### 2.5 Install Go
 
-Go is required for installing Cloud Provider KIND (used for LoadBalancer support in kind clusters).
+> **What:** Go (Golang) is a programming language runtime developed by Google.
+>
+> **Why:** Required to compile and install Cloud Provider KIND from source. Cloud Provider KIND is written in Go and distributed as source code — `go install` downloads, compiles, and installs the binary. Without Go, LoadBalancer services in kind would remain in `<pending>` state.
 
 ```bash
 # Download Go
@@ -494,7 +593,8 @@ Expected output: `go version go1.23.0 linux/amd64`
 ---
 
 
-## Part 4 - Setup Kubernetes Platform (kind)
+
+## Part 3 - Setup Kubernetes Platform (kind)
 
 **Official Istio Docs:** https://istio.io/latest/docs/setup/platform-setup/kind/
 
@@ -558,7 +658,7 @@ This topology separates concerns:
 | kubeadmConfigPatches for node labels | Applies labels at node registration time (before any scheduling) |
 | Separate worker for backend services | Demonstrates affinity/anti-affinity patterns used in e-commerce |
 
-### 4.1 Install kind
+### 3.1 Install kind
 
 Reference: https://kind.sigs.k8s.io/docs/user/quick-start/
 
@@ -572,7 +672,7 @@ sudo mv ./kind /usr/local/bin/kind
 kind version
 ```
 
-### 4.2 Cluster Configuration File
+### 3.2 Cluster Configuration File
 
 Create the file `kind-istio-cluster.yaml`:
 
@@ -675,7 +775,7 @@ nodes:
 ```
 
 
-### 4.3 Create the Cluster
+### 3.3 Create the Cluster
 
 #### Save the Configuration
 
@@ -774,13 +874,13 @@ kubectl config use-context kind-istio-ecommerce
 kubectl cluster-info
 ```
 
-### 4.4 Setup Cloud Provider KIND for LoadBalancer
+### 3.4 Setup Cloud Provider KIND for LoadBalancer
 
 Istio Ingress Gateway creates a Service of type `LoadBalancer`. In production Kubernetes (EKS, GKE), the cloud provider assigns an external IP. In kind, we need Cloud Provider KIND to handle this.
 
 Reference: https://kind.sigs.k8s.io/docs/user/loadbalancer/
 
-**Prerequisite:** Go must be installed (see [Part 3.5 - Install Go](#35-install-go)).
+**Prerequisite:** Go must be installed (see [Part 2.5 - Install Go](#25-install-go)).
 
 As per the official kind LoadBalancer documentation, Cloud Provider KIND is installed using:
 
@@ -829,7 +929,7 @@ tmux new-session -d -s cpkind 'sudo cloud-provider-kind'
 tmux attach -t cpkind
 ```
 
-### 4.5 Remove Control Plane Exclusion Label
+### 3.5 Remove Control Plane Exclusion Label
 
 By default, Kubernetes labels control-plane nodes with `node.kubernetes.io/exclude-from-external-load-balancers`
 which prevents LoadBalancer services from routing traffic to them. Since kind runs workloads on all
@@ -839,7 +939,7 @@ nodes (including control-plane), remove this label:
 kubectl label node istio-ecommerce-control-plane node.kubernetes.io/exclude-from-external-load-balancers-
 ```
 
-### 4.6 Verify LoadBalancer Support
+### 3.6 Verify LoadBalancer Support
 
 Deploy the test service from the official kind documentation:
 
@@ -868,23 +968,24 @@ Cleanup test resources:
 kubectl delete -f https://kind.sigs.k8s.io/examples/loadbalancer/usage.yaml
 ```
 
-### 4.7 Troubleshooting Cloud Provider KIND
+### 3.7 Troubleshooting Cloud Provider KIND
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | `/usr/local/bin/cloud-provider-kind: line 1: Not: command not found` | Broken binary from failed download | `sudo rm -f /usr/local/bin/cloud-provider-kind` then reinstall via `go install` |
-| `go install` fails with "go: command not found" | Go not installed | Follow [Part 3.5](#35-install-go) to install Go |
+| `go install` fails with "go: command not found" | Go not installed | Follow [Part 2.5](#25-install-go) to install Go |
 | EXTERNAL-IP stays `<pending>` | cloud-provider-kind not running | Run `sudo cloud-provider-kind &` |
-| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Step 4.5 |
+| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Step 3.5 |
 | cloud-provider-kind exits immediately | Port conflict or Docker socket permission | Run with `sudo`; check `docker ps` |
 
 
 ---
 
 
-## Part 5 - Verify Cluster Topology
 
-### 5.1 Check Nodes and Labels
+## Part 4 - Verify and Understand Cluster Configuration
+
+### 4.1 Check Nodes and Labels
 
 ```bash
 kubectl get nodes -o wide
@@ -898,7 +999,7 @@ istio-ecommerce-worker          Ready    <none>          2m    v1.36.1    172.18
 istio-ecommerce-worker2         Ready    <none>          2m    v1.36.1    172.18.0.x    ...
 ```
 
-### 5.2 Verify Node Labels
+### 4.2 Verify Node Labels
 
 ```bash
 # Show all labels
@@ -910,13 +1011,13 @@ kubectl get nodes -l tier=backend
 kubectl get nodes -l ingress-ready=true
 ```
 
-### 5.3 Check System Pods Distribution
+### 4.3 Check System Pods Distribution
 
 ```bash
 kubectl get pods -n kube-system -o wide
 ```
 
-### 5.4 Verify Port Mappings
+### 4.4 Verify Port Mappings
 
 ```bash
 # Check Docker port mappings on the control-plane container
@@ -931,7 +1032,7 @@ Expected:
 30443/tcp -> 0.0.0.0:30443
 ```
 
-### 5.5 Verify External Access (from EC2 host)
+### 4.5 Verify External Access (from EC2 host)
 
 ```bash
 # This should return "connection refused" (nothing listening yet) — not "timeout"
@@ -940,11 +1041,7 @@ curl -v http://localhost:80 2>&1 | head -5
 
 If you get `Connection refused`, the port mapping works. Traffic reaches the container but no service is listening yet (Istio Ingress Gateway will handle this later).
 
----
-
-## Part 6 - Understanding the Configuration
-
-### 6.1 extraPortMappings
+### 4.6 extraPortMappings
 
 ```yaml
 extraPortMappings:
@@ -963,7 +1060,7 @@ extraPortMappings:
 
 Without `listenAddress: "0.0.0.0"`, you cannot access the cluster from your local machine via the EC2 Elastic IP. This is critical for remote lab setups.
 
-### 6.2 Node Labels
+### 4.7 Node Labels
 
 Labels applied via `kubeadmConfigPatches` are set during node registration. This means:
 - Pods with `nodeSelector` can be scheduled immediately.
@@ -977,14 +1074,14 @@ spec:
     tier: frontend
 ```
 
-### 6.3 listenAddress: "0.0.0.0" Security Consideration
+### 4.8 listenAddress: "0.0.0.0" Security Consideration
 
 Setting `listenAddress: "0.0.0.0"` exposes the port to all interfaces on the EC2 host. This is necessary for remote access but means:
 - The EC2 Security Group is the only firewall.
 - Ensure only required ports are open and restricted to your IP.
 - Do NOT use this in environments where the host is on an untrusted network.
 
-### 6.4 Topology Labels
+### 4.9 Topology Labels
 
 ```yaml
 labels:
@@ -997,7 +1094,8 @@ These simulate availability zones. Istio uses topology labels for locality-aware
 ---
 
 
-## Part 7 - Install Istio CLI (istioctl)
+
+## Part 5 - Install Istio CLI (istioctl)
 
 Reference: https://istio.io/latest/docs/setup/additional-setup/download-istio-release/
 
@@ -1050,9 +1148,38 @@ If issues are reported, resolve them before proceeding with Istio installation.
 
 ---
 
-## Part 8 - Kind Command Reference
+## Part 6 - Cleanup
 
-### 8.1 Cluster Information Commands
+### Delete kind Cluster
+
+```bash
+kind delete cluster --name istio-ecommerce
+```
+
+### Terminate EC2 Instance (if applicable)
+
+1. Release Elastic IP to avoid charges.
+2. Terminate the instance from EC2 Console.
+
+### Delete EKS Cluster (if applicable)
+
+```bash
+eksctl delete cluster --name istio-lab-eks --region ap-south-1
+```
+
+### Delete GKE Cluster (if applicable)
+
+```bash
+gcloud container clusters delete $CLUSTER_NAME --zone $ZONE --project $PROJECT_ID
+```
+
+---
+
+
+
+## Part 7 - Kind Cluster Operations and Administration
+
+### 7.1 Cluster Information Commands
 
 ```bash
 # List all kind clusters on this host
@@ -1077,7 +1204,7 @@ kubectl config get-contexts
 kubectl config use-context kind-istio-ecommerce
 ```
 
-### 8.2 Inspect Current Cluster Configuration
+### 7.2 Inspect Current Cluster Configuration
 
 ```bash
 # View the kind config that was used to create the cluster
@@ -1109,7 +1236,7 @@ docker network ls | grep kind
 docker network inspect kind
 ```
 
-### 8.3 Node Label Management
+### 7.3 Node Label Management
 
 ```bash
 # View labels on all nodes
@@ -1133,7 +1260,7 @@ kubectl get nodes -l tier=backend
 kubectl get nodes -l ingress-ready=true
 ```
 
-### 8.4 Create a New Cluster from Config
+### 7.4 Create a New Cluster from Config
 
 ```bash
 # Create cluster from config file
@@ -1152,7 +1279,7 @@ kind create cluster --config ~/istio-lab/cluster/kind-istio-cluster.yaml --wait 
 kind create cluster --name quick-test
 ```
 
-### 8.5 Load Docker Images into Kind
+### 7.5 Load Docker Images into Kind
 
 kind uses its own container image store. If you build local images or want to avoid pulling from registry, load them directly:
 
@@ -1170,10 +1297,10 @@ kind load image-archive my-images.tar --name istio-ecommerce
 docker exec istio-ecommerce-worker crictl images | grep my-app
 ```
 
-**Note:** This uses `kind load` to push images directly into kind nodes. For a persistent registry-based workflow, see [Part 9.1 - Local Container Registry](#91-local-container-registry).
+**Note:** This uses `kind load` to push images directly into kind nodes. For a persistent registry-based workflow, see [7.11 - Local Container Registry](#711-local-container-registry).
 
 
-### 8.6 Cluster Lifecycle Management
+### 7.6 Cluster Lifecycle Management
 
 ```bash
 # --- Stop Cluster (preserve state, save resources) ---
@@ -1196,9 +1323,9 @@ kind delete cluster --name istio-ecommerce
 kind delete clusters --all
 ```
 
-### 8.7 Debugging Commands
+### 7.7 Debugging Commands
 
-Quick-reference commands for debugging kind cluster issues. For specific issue+fix pairs, see [Part 9.7 - Known Issues and Fixes](#97-known-issues-and-fixes).
+Quick-reference commands for debugging kind cluster issues. For specific issue+fix pairs, see [7.17 - Known Issues and Fixes](#717-known-issues-and-fixes).
 
 ```bash
 # Export cluster logs to a directory (useful for debugging failures)
@@ -1230,7 +1357,7 @@ kubectl run dns-test --image=busybox:1.36 --restart=Never --rm -it -- nslookup k
 kubectl get componentstatuses 2>/dev/null || kubectl get --raw='/readyz?verbose'
 ```
 
-### 8.8 Multiple Clusters on Same Host
+### 7.8 Multiple Clusters on Same Host
 
 ```bash
 # Create multiple clusters for different purposes
@@ -1248,7 +1375,7 @@ kubectl config use-context kind-quick-test
 kind delete cluster --name quick-test
 ```
 
-### 8.9 Backup and Restore Cluster Config
+### 7.9 Backup and Restore Cluster Config
 
 ```bash
 # The cluster config YAML is the only thing you need to backup.
@@ -1261,7 +1388,7 @@ cp ~/istio-lab/cluster/kind-istio-cluster.yaml ~/istio-lab/cluster/kind-istio-cl
 cd ~/istio-lab && git init && git add . && git commit -m "Initial cluster config"
 ```
 
-### 8.10 Quick Reference Table
+### 7.10 Quick Reference Table
 
 | Task | Command |
 |------|---------|
@@ -1283,13 +1410,8 @@ cd ~/istio-lab && git init && git add . && git commit -m "Initial cluster config
 | Remove label | `kubectl label node <node> key-` |
 
 
----
 
-## Part 9 - Kind Administration Guide
-
-This section covers advanced administrative tasks for kind clusters based on official documentation at https://kind.sigs.k8s.io/docs/
-
-### 9.1 Local Container Registry
+### 7.11 Local Container Registry
 
 A local registry allows you to push images locally and use them in your kind cluster without pulling from Docker Hub or other remote registries. This is essential for development workflows.
 
@@ -1358,7 +1480,7 @@ docker exec istio-ecommerce-control-plane curl -s http://kind-registry:5000/v2/_
 
 ---
 
-### 9.2 Ingress Setup
+### 7.12 Ingress Setup
 
 Reference: https://kind.sigs.k8s.io/docs/user/ingress/
 
@@ -1388,7 +1510,7 @@ kubectl delete -f https://kind.sigs.k8s.io/examples/ingress/usage.yaml
 
 ---
 
-### 9.3 Resource Management
+### 7.13 Resource Management
 
 **Monitor Docker Resources Used by Kind:**
 
@@ -1443,7 +1565,7 @@ kubectl top nodes
 
 ---
 
-### 9.4 Networking Administration
+### 7.14 Networking Administration
 
 **Inspect Kind Docker Network:**
 
@@ -1490,7 +1612,7 @@ kubectl run curl-test --image=curlimages/curl --restart=Never --rm -it -- curl -
 
 ---
 
-### 9.5 Storage Administration
+### 7.15 Storage Administration
 
 **StorageClass Management:**
 
@@ -1531,7 +1653,7 @@ kubectl get pvc test-pvc
 
 ---
 
-### 9.6 Node Administration
+### 7.16 Node Administration
 
 **Node Cordon/Drain (simulate maintenance):**
 
@@ -1571,11 +1693,11 @@ kubectl wait --for=condition=Ready node/istio-ecommerce-worker --timeout=120s
 
 ---
 
-### 9.7 Known Issues and Fixes
+### 7.17 Known Issues and Fixes
 
 Reference: https://kind.sigs.k8s.io/docs/user/known-issues/
 
-For general debugging commands, see [Part 8.7 - Debugging Commands](#87-debugging-commands). This section covers specific known issues with their resolutions.
+For general debugging commands, see [7.7 - Debugging Commands](#77-debugging-commands). This section covers specific known issues with their resolutions.
 
 **Pod Errors Due to "too many open files":**
 
@@ -1660,32 +1782,6 @@ cat ./kind-debug-logs/istio-ecommerce-control-plane/containerd.log | tail -50
 ---
 
 
-## Part 10 - Cleanup
-
-### Delete kind Cluster
-
-```bash
-kind delete cluster --name istio-ecommerce
-```
-
-### Terminate EC2 Instance (if applicable)
-
-1. Release Elastic IP to avoid charges.
-2. Terminate the instance from EC2 Console.
-
-### Delete EKS Cluster (if applicable)
-
-```bash
-eksctl delete cluster --name istio-lab-eks --region ap-south-1
-```
-
-### Delete GKE Cluster (if applicable)
-
-```bash
-gcloud container clusters delete $CLUSTER_NAME --zone $ZONE --project $PROJECT_ID
-```
-
----
 
 ## Appendix A - Minimal kind Configuration (Single Node)
 
@@ -1924,9 +2020,9 @@ gcloud compute firewall-rules update <firewall-rule-name> --allow tcp:10250,tcp:
 | Image pull errors (minikube) | Insufficient memory | Restart with `--memory=16384` |
 | Connection refused on port 15017 (GKE) | Firewall rule missing | Update GKE firewall rule to allow tcp:15017 |
 | `/usr/local/bin/cloud-provider-kind: line 1: Not: command not found` | Broken binary from failed download | `sudo rm -f /usr/local/bin/cloud-provider-kind` then reinstall via `go install` |
-| `go install` fails with "go: command not found" | Go not installed | Follow [Part 3.5](#35-install-go) to install Go |
+| `go install` fails with "go: command not found" | Go not installed | Follow [Part 2.5](#25-install-go) to install Go |
 | EXTERNAL-IP stays `<pending>` | cloud-provider-kind not running | Run `sudo cloud-provider-kind &` |
-| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Part 4.5 |
+| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Part 3.5 |
 | cloud-provider-kind exits immediately | Port conflict or Docker socket permission | Run with `sudo`; check `docker ps` |
 
 ---
