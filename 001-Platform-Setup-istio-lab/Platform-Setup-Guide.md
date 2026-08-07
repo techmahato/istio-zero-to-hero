@@ -43,11 +43,11 @@
   - [5.2 Verify Node Labels](#52-verify-node-labels)
   - [5.3 Check System Pods Distribution](#53-check-system-pods-distribution)
   - [5.4 Verify Port Mappings](#54-verify-port-mappings)
-  - [5.5 Verify External Access](#55-verify-external-access)
+  - [5.5 Verify External Access](#55-verify-external-access-from-ec2-host)
 - [Part 6 - Understanding the Configuration](#part-6---understanding-the-configuration)
   - [6.1 extraPortMappings](#61-extraportmappings)
   - [6.2 Node Labels](#62-node-labels)
-  - [6.3 listenAddress Security Consideration](#63-listenaddress-security-consideration)
+  - [6.3 listenAddress Security Consideration](#63-listenaddress-0000-security-consideration)
   - [6.4 Topology Labels](#64-topology-labels)
 - [Part 7 - Install Istio CLI (istioctl)](#part-7---install-istio-cli-istioctl)
 - [Part 8 - Kind Command Reference](#part-8---kind-command-reference)
@@ -57,7 +57,7 @@
   - [8.4 Create a New Cluster](#84-create-a-new-cluster)
   - [8.5 Load Docker Images into Kind](#85-load-docker-images-into-kind)
   - [8.6 Cluster Lifecycle Management](#86-cluster-lifecycle-management)
-  - [8.7 Debugging and Troubleshooting](#87-debugging-and-troubleshooting)
+  - [8.7 Debugging Commands](#87-debugging-commands)
   - [8.8 Multiple Clusters on Same Host](#88-multiple-clusters-on-same-host)
   - [8.9 Backup and Restore Cluster Config](#89-backup-and-restore-cluster-config)
   - [8.10 Quick Reference Table](#810-quick-reference-table)
@@ -164,27 +164,12 @@ aws ec2 associate-address --instance-id <instance-id> --allocation-id <eip-alloc
 
 #### Step 1.5: Connect to the Instance
 
-**Method A: SSH**
+Quick connection test via SSH:
 ```bash
 ssh -i "your-key.pem" ubuntu@<elastic-ip>
 ```
 
-**Method B: AWS Systems Manager (No SSH key required)**
-```bash
-aws ssm start-session --target <instance-id> --region ap-south-1
-```
-
-**Method C: VS Code Remote-SSH with SSM Proxy**
-
-Add the following to `~/.ssh/config`:
-```
-Host istio-lab
-    HostName <instance-id>
-    User ubuntu
-    ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p
-```
-
-Then connect via VS Code Remote-SSH extension.
+For detailed SSH setup including VS Code Remote-SSH integration, SSM-based access, port forwarding, and troubleshooting, see [Part 2 - SSH Access Setup](#part-2---ssh-access-setup-connect-from-local-machine).
 
 ---
 
@@ -230,6 +215,7 @@ Host istio-vm
     Port 2222
     User <your-username>
 ```
+
 
 ---
 
@@ -408,6 +394,7 @@ df -h /
 free -h
 ```
 
+
 ---
 
 
@@ -503,6 +490,7 @@ go version
 
 Expected output: `go version go1.23.0 linux/amd64`
 
+
 ---
 
 
@@ -570,7 +558,7 @@ This topology separates concerns:
 | kubeadmConfigPatches for node labels | Applies labels at node registration time (before any scheduling) |
 | Separate worker for backend services | Demonstrates affinity/anti-affinity patterns used in e-commerce |
 
-### 3.1 Install kind
+### 4.1 Install kind
 
 Reference: https://kind.sigs.k8s.io/docs/user/quick-start/
 
@@ -584,7 +572,7 @@ sudo mv ./kind /usr/local/bin/kind
 kind version
 ```
 
-### 3.2 Cluster Configuration File
+### 4.2 Cluster Configuration File
 
 Create the file `kind-istio-cluster.yaml`:
 
@@ -687,7 +675,7 @@ nodes:
 ```
 
 
-### 3.3 Create the Cluster
+### 4.3 Create the Cluster
 
 #### Save the Configuration
 
@@ -786,11 +774,13 @@ kubectl config use-context kind-istio-ecommerce
 kubectl cluster-info
 ```
 
-### 3.4 Setup Cloud Provider KIND for LoadBalancer
+### 4.4 Setup Cloud Provider KIND for LoadBalancer
 
 Istio Ingress Gateway creates a Service of type `LoadBalancer`. In production Kubernetes (EKS, GKE), the cloud provider assigns an external IP. In kind, we need Cloud Provider KIND to handle this.
 
 Reference: https://kind.sigs.k8s.io/docs/user/loadbalancer/
+
+**Prerequisite:** Go must be installed (see [Part 3.5 - Install Go](#35-install-go)).
 
 As per the official kind LoadBalancer documentation, Cloud Provider KIND is installed using:
 
@@ -839,7 +829,7 @@ tmux new-session -d -s cpkind 'sudo cloud-provider-kind'
 tmux attach -t cpkind
 ```
 
-### 3.5 Remove Control Plane Exclusion Label
+### 4.5 Remove Control Plane Exclusion Label
 
 By default, Kubernetes labels control-plane nodes with `node.kubernetes.io/exclude-from-external-load-balancers`
 which prevents LoadBalancer services from routing traffic to them. Since kind runs workloads on all
@@ -849,7 +839,7 @@ nodes (including control-plane), remove this label:
 kubectl label node istio-ecommerce-control-plane node.kubernetes.io/exclude-from-external-load-balancers-
 ```
 
-### 3.6 Verify LoadBalancer Support
+### 4.6 Verify LoadBalancer Support
 
 Deploy the test service from the official kind documentation:
 
@@ -873,28 +863,28 @@ done
 
 Expected: Output shows hostnames of foo-app and bar-app alternating (round-robin).
 
-### 3.7 Cleanup Test Resources
-
+Cleanup test resources:
 ```bash
 kubectl delete -f https://kind.sigs.k8s.io/examples/loadbalancer/usage.yaml
 ```
 
-#### Troubleshooting Cloud Provider KIND
+### 4.7 Troubleshooting Cloud Provider KIND
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | `/usr/local/bin/cloud-provider-kind: line 1: Not: command not found` | Broken binary from failed download | `sudo rm -f /usr/local/bin/cloud-provider-kind` then reinstall via `go install` |
-| `go install` fails with "go: command not found" | Go not installed | Follow Step 2.5 to install Go |
+| `go install` fails with "go: command not found" | Go not installed | Follow [Part 3.5](#35-install-go) to install Go |
 | EXTERNAL-IP stays `<pending>` | cloud-provider-kind not running | Run `sudo cloud-provider-kind &` |
-| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Step 3.5 |
+| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Step 4.5 |
 | cloud-provider-kind exits immediately | Port conflict or Docker socket permission | Run with `sudo`; check `docker ps` |
+
 
 ---
 
 
 ## Part 5 - Verify Cluster Topology
 
-### 4.1 Check Nodes and Labels
+### 5.1 Check Nodes and Labels
 
 ```bash
 kubectl get nodes -o wide
@@ -908,7 +898,7 @@ istio-ecommerce-worker          Ready    <none>          2m    v1.36.1    172.18
 istio-ecommerce-worker2         Ready    <none>          2m    v1.36.1    172.18.0.x    ...
 ```
 
-### 4.2 Verify Node Labels
+### 5.2 Verify Node Labels
 
 ```bash
 # Show all labels
@@ -920,13 +910,13 @@ kubectl get nodes -l tier=backend
 kubectl get nodes -l ingress-ready=true
 ```
 
-### 4.3 Check System Pods Distribution
+### 5.3 Check System Pods Distribution
 
 ```bash
 kubectl get pods -n kube-system -o wide
 ```
 
-### 4.4 Verify Port Mappings
+### 5.4 Verify Port Mappings
 
 ```bash
 # Check Docker port mappings on the control-plane container
@@ -941,7 +931,7 @@ Expected:
 30443/tcp -> 0.0.0.0:30443
 ```
 
-### 4.5 Verify External Access (from EC2 host)
+### 5.5 Verify External Access (from EC2 host)
 
 ```bash
 # This should return "connection refused" (nothing listening yet) — not "timeout"
@@ -954,7 +944,7 @@ If you get `Connection refused`, the port mapping works. Traffic reaches the con
 
 ## Part 6 - Understanding the Configuration
 
-### 5.1 extraPortMappings
+### 6.1 extraPortMappings
 
 ```yaml
 extraPortMappings:
@@ -973,7 +963,7 @@ extraPortMappings:
 
 Without `listenAddress: "0.0.0.0"`, you cannot access the cluster from your local machine via the EC2 Elastic IP. This is critical for remote lab setups.
 
-### 5.2 Node Labels
+### 6.2 Node Labels
 
 Labels applied via `kubeadmConfigPatches` are set during node registration. This means:
 - Pods with `nodeSelector` can be scheduled immediately.
@@ -987,14 +977,14 @@ spec:
     tier: frontend
 ```
 
-### 5.3 listenAddress: "0.0.0.0" Security Consideration
+### 6.3 listenAddress: "0.0.0.0" Security Consideration
 
 Setting `listenAddress: "0.0.0.0"` exposes the port to all interfaces on the EC2 host. This is necessary for remote access but means:
 - The EC2 Security Group is the only firewall.
 - Ensure only required ports are open and restricted to your IP.
 - Do NOT use this in environments where the host is on an untrusted network.
 
-### 5.4 Topology Labels
+### 6.4 Topology Labels
 
 ```yaml
 labels:
@@ -1002,6 +992,7 @@ labels:
 ```
 
 These simulate availability zones. Istio uses topology labels for locality-aware load balancing. When Istio sees services in different zones, it can prefer routing to the closest zone -- a pattern used heavily in production e-commerce for latency reduction.
+
 
 ---
 
@@ -1061,7 +1052,7 @@ If issues are reported, resolve them before proceeding with Istio installation.
 
 ## Part 8 - Kind Command Reference
 
-### 7.1 Cluster Information Commands
+### 8.1 Cluster Information Commands
 
 ```bash
 # List all kind clusters on this host
@@ -1086,7 +1077,7 @@ kubectl config get-contexts
 kubectl config use-context kind-istio-ecommerce
 ```
 
-### 7.2 Inspect Current Cluster Configuration
+### 8.2 Inspect Current Cluster Configuration
 
 ```bash
 # View the kind config that was used to create the cluster
@@ -1118,7 +1109,7 @@ docker network ls | grep kind
 docker network inspect kind
 ```
 
-### 7.3 Node Label Management
+### 8.3 Node Label Management
 
 ```bash
 # View labels on all nodes
@@ -1142,7 +1133,7 @@ kubectl get nodes -l tier=backend
 kubectl get nodes -l ingress-ready=true
 ```
 
-### 7.4 Create a New Cluster from Config
+### 8.4 Create a New Cluster from Config
 
 ```bash
 # Create cluster from config file
@@ -1161,7 +1152,7 @@ kind create cluster --config ~/istio-lab/cluster/kind-istio-cluster.yaml --wait 
 kind create cluster --name quick-test
 ```
 
-### 7.5 Load Docker Images into Kind
+### 8.5 Load Docker Images into Kind
 
 kind uses its own container image store. If you build local images or want to avoid pulling from registry, load them directly:
 
@@ -1179,8 +1170,10 @@ kind load image-archive my-images.tar --name istio-ecommerce
 docker exec istio-ecommerce-worker crictl images | grep my-app
 ```
 
+**Note:** This uses `kind load` to push images directly into kind nodes. For a persistent registry-based workflow, see [Part 9.1 - Local Container Registry](#91-local-container-registry).
 
-### 7.6 Cluster Lifecycle Management
+
+### 8.6 Cluster Lifecycle Management
 
 ```bash
 # --- Stop Cluster (preserve state, save resources) ---
@@ -1203,7 +1196,9 @@ kind delete cluster --name istio-ecommerce
 kind delete clusters --all
 ```
 
-### 7.7 Debugging and Troubleshooting Commands
+### 8.7 Debugging Commands
+
+Quick-reference commands for debugging kind cluster issues. For specific issue+fix pairs, see [Part 9.7 - Known Issues and Fixes](#97-known-issues-and-fixes).
 
 ```bash
 # Export cluster logs to a directory (useful for debugging failures)
@@ -1235,7 +1230,7 @@ kubectl run dns-test --image=busybox:1.36 --restart=Never --rm -it -- nslookup k
 kubectl get componentstatuses 2>/dev/null || kubectl get --raw='/readyz?verbose'
 ```
 
-### 7.8 Multiple Clusters on Same Host
+### 8.8 Multiple Clusters on Same Host
 
 ```bash
 # Create multiple clusters for different purposes
@@ -1253,7 +1248,7 @@ kubectl config use-context kind-quick-test
 kind delete cluster --name quick-test
 ```
 
-### 7.9 Backup and Restore Cluster Config
+### 8.9 Backup and Restore Cluster Config
 
 ```bash
 # The cluster config YAML is the only thing you need to backup.
@@ -1266,7 +1261,7 @@ cp ~/istio-lab/cluster/kind-istio-cluster.yaml ~/istio-lab/cluster/kind-istio-cl
 cd ~/istio-lab && git init && git add . && git commit -m "Initial cluster config"
 ```
 
-### 7.10 Quick Reference Table
+### 8.10 Quick Reference Table
 
 | Task | Command |
 |------|---------|
@@ -1286,6 +1281,7 @@ cd ~/istio-lab && git init && git add . && git commit -m "Initial cluster config
 | Node labels | `kubectl get nodes --show-labels` |
 | Add label | `kubectl label node <node> key=value` |
 | Remove label | `kubectl label node <node> key-` |
+
 
 ---
 
@@ -1579,6 +1575,8 @@ kubectl wait --for=condition=Ready node/istio-ecommerce-worker --timeout=120s
 
 Reference: https://kind.sigs.k8s.io/docs/user/known-issues/
 
+For general debugging commands, see [Part 8.7 - Debugging Commands](#87-debugging-commands). This section covers specific known issues with their resolutions.
+
 **Pod Errors Due to "too many open files":**
 
 Caused by running out of inotify resources. Fix:
@@ -1658,6 +1656,7 @@ cat ./kind-debug-logs/istio-ecommerce-control-plane/kubelet.log | tail -50
 cat ./kind-debug-logs/istio-ecommerce-control-plane/containerd.log | tail -50
 ```
 
+
 ---
 
 
@@ -1688,7 +1687,7 @@ gcloud container clusters delete $CLUSTER_NAME --zone $ZONE --project $PROJECT_I
 
 ---
 
-## Appendix A - Minimal kind Configuration
+## Appendix A - Minimal kind Configuration (Single Node)
 
 For quick testing when resources are limited. Not recommended for Istio production practice but works for basic exploration:
 
@@ -1711,7 +1710,7 @@ nodes:
 
 ---
 
-## Appendix B - HA kind Configuration
+## Appendix B - High Availability kind Configuration
 
 For testing Istio in an HA cluster (multi-control-plane). Requires more resources (minimum 16 GB RAM on host):
 
@@ -1925,9 +1924,9 @@ gcloud compute firewall-rules update <firewall-rule-name> --allow tcp:10250,tcp:
 | Image pull errors (minikube) | Insufficient memory | Restart with `--memory=16384` |
 | Connection refused on port 15017 (GKE) | Firewall rule missing | Update GKE firewall rule to allow tcp:15017 |
 | `/usr/local/bin/cloud-provider-kind: line 1: Not: command not found` | Broken binary from failed download | `sudo rm -f /usr/local/bin/cloud-provider-kind` then reinstall via `go install` |
-| `go install` fails with "go: command not found" | Go not installed | Follow Step 2.5 to install Go |
+| `go install` fails with "go: command not found" | Go not installed | Follow [Part 3.5](#35-install-go) to install Go |
 | EXTERNAL-IP stays `<pending>` | cloud-provider-kind not running | Run `sudo cloud-provider-kind &` |
-| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Step 3.5 |
+| EXTERNAL-IP shows IP but curl times out | Exclusion label on control-plane node | Remove label per Part 4.5 |
 | cloud-provider-kind exits immediately | Port conflict or Docker socket permission | Run with `sudo`; check `docker ps` |
 
 ---
