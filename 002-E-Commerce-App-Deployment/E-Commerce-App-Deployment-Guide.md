@@ -627,6 +627,109 @@ Note: Port-forward runs in the foreground (or background with `&`). It is not su
 ---
 
 
+### 4.4 Understanding Networking: Kind on EC2 (Why EXTERNAL-IP is a Docker IP)
+
+When you patch the frontendproxy service to `LoadBalancer`, you will see:
+
+```
+NAME                               TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+opentelemetry-demo-frontendproxy   LoadBalancer   10.96.111.254   172.18.0.5    8080:32100/TCP   12m
+```
+
+The `EXTERNAL-IP` is `172.18.0.5` — a Docker network IP, not a public IP. Here is why:
+
+**Architecture: Kind LoadBalancer on EC2**
+
+```
+  YOUR LAPTOP (Browser)
+      |
+      | connects to EC2 Elastic IP (e.g., 3.111.87.86:8080)
+      v
+  +------------------------------------------------------------------+
+  |  AWS EC2 INSTANCE (t3a.xlarge)                                    |
+  |  Public IP: 3.111.87.86 (Elastic IP)                             |
+  |  Private IP: 172.31.x.x (VPC)                                   |
+  |                                                                    |
+  |  +--------------------------------------------------------------+ |
+  |  |  DOCKER ENGINE                                                | |
+  |  |  Docker Network: "kind" (172.18.0.0/16)                      | |
+  |  |                                                                | |
+  |  |  +----------------+  +----------------+  +----------------+  | |
+  |  |  | control-plane  |  | worker-1       |  | worker-2       |  | |
+  |  |  | 172.18.0.3     |  | 172.18.0.4     |  | 172.18.0.2     |  | |
+  |  |  | Port maps:     |  | (pods here)    |  | (pods here)    |  | |
+  |  |  | 80->host:80    |  |                |  |                |  | |
+  |  |  | 443->host:443  |  |                |  |                |  | |
+  |  |  +----------------+  +----------------+  +----------------+  | |
+  |  |                                                                | |
+  |  |  +---------------------+                                      | |
+  |  |  | Cloud Provider KIND |  (Docker container acting as LB)     | |
+  |  |  | IP: 172.18.0.5      |  <-- This is the EXTERNAL-IP         | |
+  |  |  +---------------------+                                      | |
+  |  +--------------------------------------------------------------+ |
+  +------------------------------------------------------------------+
+```
+
+**Real Cloud (EKS/GKE) vs Kind on EC2:**
+
+| Aspect | Real Cloud (EKS) | Kind on EC2 |
+|--------|-----------------|-------------|
+| CCM talks to | AWS/GCP API | Docker daemon |
+| Creates | Real ALB with public DNS | Docker container with Docker IP |
+| EXTERNAL-IP | Public DNS (reachable from internet) | 172.18.x.x (reachable from EC2 host only) |
+| Browser access | Direct via LB DNS | Requires port-forward or NodePort |
+
+**Three Methods to Access the App:**
+
+**Method 1: curl from EC2 host (immediate, no browser)**
+
+```bash
+# EC2 host CAN reach Docker network IPs directly
+curl http://172.18.0.5:8080
+```
+
+Why: The EC2 host has a route to the Docker bridge network (172.18.0.0/16).
+
+**Method 2: kubectl port-forward (for browser access from laptop)**
+
+```bash
+# Bridges: EC2-public-IP:8080 --> K8s-Service:8080
+nohup kubectl port-forward svc/opentelemetry-demo-frontendproxy 8080:8080 --address=0.0.0.0 &>/dev/null &
+```
+
+Access from browser: `http://<EC2-ELASTIC-IP>:8080`
+
+How it works:
+```
+  Browser --> EC2:8080 --> kubectl port-forward --> K8s API --> Pod
+                ^                                              ^
+                |                                              |
+      listens on 0.0.0.0:8080                       app running
+      (all interfaces)                              inside pod
+```
+
+The `--address=0.0.0.0` flag is critical. Without it, port-forward only listens on `127.0.0.1` (localhost), meaning only processes on EC2 itself can connect.
+
+**Method 3: NodePort via extraPortMappings (no port-forward needed)**
+
+The kind cluster config has ports 80/443 mapped to the EC2 host. When Istio Ingress Gateway is configured to use those ports:
+
+```
+  Browser --> EC2:80 --> Docker port-map --> control-plane:80 --> Istio Gateway --> Service --> Pods
+```
+
+This is the method used with Istio Ingress Gateway (covered in next lab module).
+
+**Summary:**
+
+| Method | Access From | Command | Limitation |
+|--------|------------|---------|-----------|
+| Docker IP (172.18.0.5) | EC2 host only | `curl http://172.18.0.5:8080` | Not reachable from internet |
+| kubectl port-forward | Browser via Elastic IP | `kubectl port-forward --address=0.0.0.0` | Dies when terminal disconnects (use nohup) |
+| extraPortMappings (80/443) | Browser via Elastic IP | Configure service on mapped ports | Best for Istio (next module) |
+
+---
+
 ## Part 5 - LoadBalancer vs Ingress
 
 ### 5.1 Disadvantages of LoadBalancer Service Type
@@ -740,20 +843,176 @@ Ingress Resource (YAML)  --->  Ingress Controller (Pod)  --->  Load Balancer (Ac
 
 ### 6.1 For Kind Cluster (Our Lab)
 
-With Cloud Provider KIND v0.9.0+, Ingress is natively supported. The cloud-provider-kind binary handles both LoadBalancer IPs and Ingress routing.
+With Cloud Provider KIND v0.9.0+, Ingress is natively supported. The cloud-provider-kind binary handles both LoadBalancer IPs and Ingress routing without needing any third-party ingress controller (like NGINX or Traefik).
+
+**How Ingress Works on Kind (with Cloud Provider KIND):**
+
+```
+  You write:                    Cloud Provider KIND:           Result:
+  ==========                    ====================           =======
+
+  Ingress Resource              Watches for Ingress            Creates Docker container
+  (routing rules)    -------->  resources in cluster  -------> acting as reverse proxy
+                                                               with routing rules applied
+
+  +------------------+          +--------------------+         +------------------+
+  | kind: Ingress    |          | cloud-provider-kind|         | Docker container |
+  | rules:           |  reads   | (running on host)  | creates | IP: 172.18.0.x   |
+  |   /foo -> foo-svc| -------> |                    |-------> | Routes:          |
+  |   /bar -> bar-svc|          |                    |         |  /foo -> foo-svc |
+  +------------------+          +--------------------+         |  /bar -> bar-svc |
+                                                               +------------------+
+```
+
+**Important:** Unlike real cloud (where you need ALB Controller, NGINX Ingress, etc.), on Kind with Cloud Provider KIND v0.9.0+:
+- No ingress controller deployment needed
+- No Helm charts to install
+- Cloud Provider KIND itself acts as the ingress controller
+- It reads Ingress resources and creates routing containers automatically
+
+**Prerequisites:**
+- Cloud Provider KIND running (`sudo cloud-provider-kind &`)
+- Control plane exclusion label removed (done in Part 3)
+
+**Step 1: Deploy the Ingress Example**
 
 ```bash
-# Deploy ingress example to verify functionality
+# Deploy test pods, services, and ingress resource from official kind docs
 kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/usage.yaml
-
-# Wait for ingress to get an IP
-kubectl get ingress -w
-
-# Verify routing works
-INGRESS_IP=$(kubectl get ingress example-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-curl ${INGRESS_IP}/foo
-curl ${INGRESS_IP}/bar
 ```
+
+This creates:
+- `foo-app` pod (serves its hostname on port 8080)
+- `bar-app` pod (serves its hostname on port 8080)
+- `foo-service` (ClusterIP, selects foo-app)
+- `bar-service` (ClusterIP, selects bar-app)
+- `example-ingress` (routes `/foo` to foo-service, `/bar` to bar-service)
+
+**Step 2: Verify Ingress Gets an IP**
+
+```bash
+kubectl get ingress -w
+```
+
+Expected output (wait ~10-30 seconds):
+```
+NAME              CLASS    HOSTS   ADDRESS      PORTS   AGE
+example-ingress   <none>   *      172.18.0.6   80      30s
+```
+
+The `ADDRESS` field shows the Docker network IP assigned by Cloud Provider KIND.
+
+If ADDRESS stays empty, check:
+```bash
+# Is cloud-provider-kind running?
+ps aux | grep cloud-provider-kind
+
+# If not, start it
+sudo cloud-provider-kind &
+
+# Check its logs for errors
+docker logs $(docker ps --filter "name=kindccm" -q) 2>/dev/null
+```
+
+**Step 3: Test Path-Based Routing**
+
+```bash
+# Get the Ingress IP
+INGRESS_IP=$(kubectl get ingress example-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Ingress IP: ${INGRESS_IP}"
+
+# Test /foo route (should return foo-app hostname)
+curl ${INGRESS_IP}/foo
+
+# Test /bar route (should return bar-app hostname)
+curl ${INGRESS_IP}/bar
+
+# Test non-existent path (should return 404)
+curl -I ${INGRESS_IP}/unknown
+```
+
+Expected:
+```
+$ curl 172.18.0.6/foo
+foo-app
+$ curl 172.18.0.6/bar
+bar-app
+```
+
+This confirms:
+- Ingress is working
+- Path-based routing is active (`/foo` goes to foo-service, `/bar` goes to bar-service)
+- Cloud Provider KIND is handling ingress natively
+
+**Step 4: Understand the Ingress YAML**
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+spec:
+  rules:
+    - http:
+        paths:
+          - pathType: Prefix
+            path: /foo                    # URL path to match
+            backend:
+              service:
+                name: foo-service         # Route to this service
+                port:
+                  number: 8080            # On this port
+          - pathType: Prefix
+            path: /bar
+            backend:
+              service:
+                name: bar-service
+                port:
+                  number: 8080
+```
+
+| Field | Purpose |
+|-------|---------|
+| spec.rules | List of routing rules |
+| rules.http.paths | Path-based routing entries |
+| pathType: Prefix | Match any URL starting with this path |
+| backend.service.name | Target Kubernetes Service name |
+| backend.service.port.number | Target Service port |
+
+**Step 5: Accessing Ingress from Your Browser (via EC2)**
+
+The Ingress IP (172.18.0.x) is only reachable from the EC2 host. To access from your browser:
+
+```bash
+# Option A: Port-forward the ingress (if it's on port 80)
+# Since our kind config maps port 80 to host, any traffic to EC2:80 goes to control-plane:80
+# If ingress uses port 80 on the cluster, it should work via EC2-IP:80
+
+# Option B: Use kubectl port-forward to the backend service directly
+nohup kubectl port-forward svc/foo-service 9090:8080 --address=0.0.0.0 &>/dev/null &
+# Access: http://<EC2-IP>:9090
+```
+
+**Step 6: Cleanup Test Resources**
+
+```bash
+kubectl delete -f https://kind.sigs.k8s.io/examples/ingress/usage.yaml
+```
+
+**Comparison: Kind Ingress vs Production Ingress**
+
+| Aspect | Kind (Cloud Provider KIND) | Production (ALB/NGINX) |
+|--------|---------------------------|----------------------|
+| Ingress Controller | Built into cloud-provider-kind | Separate deployment (ALB Controller, NGINX, Traefik) |
+| IP assigned | Docker network IP (172.18.x.x) | Real public IP or DNS |
+| Host-based routing | Supported | Supported |
+| Path-based routing | Supported | Supported |
+| TLS/HTTPS | Limited | Full support with cert-manager |
+| Annotations | Minimal | Hundreds of options per controller |
+| Gateway API | Supported (standard channel) | Supported |
+| Access from internet | Via port-forward or NodePort mappings | Direct |
+
+**Note for Istio:** When we install Istio, we will NOT use Kubernetes Ingress resource. Instead, Istio uses its own Gateway and VirtualService resources, which provide much richer traffic management (canary routing, fault injection, retries, etc.). The Istio Ingress Gateway will be exposed via NodePort on ports 80/443 that are already mapped in our kind cluster config.
 
 ### 6.2 For EKS Cluster (Production Reference)
 
