@@ -730,109 +730,244 @@ This is the method used with Istio Ingress Gateway (covered in next lab module).
 
 ---
 
-## Part 5 - LoadBalancer vs Ingress
+## Part 5 - LoadBalancer vs Ingress (Deep Dive)
 
-### 5.1 Disadvantages of LoadBalancer Service Type
+This section explains why LoadBalancer service type has limitations, how Ingress solves those problems, and the complete architecture of Ingress Controllers.
 
-| Disadvantage | Explanation |
+### 5.1 How LoadBalancer Service Type Works
+
+When you change a service type to `LoadBalancer`:
+
+```
+  Step-by-step flow:
+  ==================
+
+  1. You run: kubectl patch svc frontend -p '{"spec": {"type": "LoadBalancer"}}'
+                    |
+                    v
+  2. Kubernetes API Server receives the change
+                    |
+                    v
+  3. API Server notifies Cloud Controller Manager (CCM)
+     (CCM is a control-plane component that talks to cloud APIs)
+                    |
+                    v
+  4. CCM calls cloud provider API:
+     - AWS: Creates an ALB or NLB
+     - GCP: Creates a Google Cloud Load Balancer
+     - Kind: Cloud Provider KIND creates a Docker container
+                    |
+                    v
+  5. Cloud provider returns an external IP or DNS
+                    |
+                    v
+  6. CCM writes the external IP back to the Service's
+     status.loadBalancer.ingress field
+                    |
+                    v
+  7. kubectl get svc shows EXTERNAL-IP
+```
+
+**Result for our application:**
+```bash
+$ kubectl patch svc opentelemetry-demo-frontendproxy -p '{"spec": {"type": "LoadBalancer"}}'
+$ kubectl get svc opentelemetry-demo-frontendproxy
+NAME                               TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
+opentelemetry-demo-frontendproxy   LoadBalancer   10.96.111.254   172.18.0.5    8080:32100/TCP   12m
+```
+
+### 5.2 Disadvantages of LoadBalancer Service Type
+
+```
+  The Problem at Scale (20 microservices, each needing external access):
+  =====================================================================
+
+  Service 1 (frontend)       --> Creates LB 1  (cost: $20/month)
+  Service 2 (API gateway)    --> Creates LB 2  (cost: $20/month)
+  Service 3 (admin panel)    --> Creates LB 3  (cost: $20/month)
+  Service 4 (webhooks)       --> Creates LB 4  (cost: $20/month)
+  ...                        ...
+  Service 20 (monitoring)    --> Creates LB 20 (cost: $20/month)
+                                              ___________________
+                                 Total cost:  $400/month (just LBs!)
+
+  With Ingress: ONE load balancer routes to ALL 20 services = $20/month
+```
+
+| Disadvantage | Detailed Explanation |
 |---|---|
-| Not Declarative | Load balancer configuration cannot be fully managed via YAML. Changes require patching or cloud console. |
-| Cost Inefficient | Each service with type LoadBalancer creates a separate cloud load balancer. At scale with 20+ services, this becomes extremely expensive. |
-| Limited Flexibility | Tied directly to the cloud provider's Cloud Controller Manager implementation. |
-| No Host/Path Routing | Cannot route traffic based on domain names or URL paths. One LB serves one service only. |
-| Not Portable | Does not work on non-cloud clusters (bare-metal, on-prem) without additional tooling like MetalLB or Cloud Provider KIND. |
+| Not Declarative | You cannot configure HTTPS, certificates, custom headers, rate limiting, or routing rules via the Service YAML. The Service only says `type: LoadBalancer`. Any additional configuration must be done manually in the cloud console (AWS/GCP) or via annotations that vary per provider. If someone modifies the LB in the console, there is NO record of the change in Git. |
+| Cost Inefficient | Each LoadBalancer service creates a SEPARATE cloud load balancer. AWS ALB costs ~$20/month + data transfer. With 10 services, that is $200/month just for load balancers. Ingress uses ONE LB for all services. |
+| No Routing Rules | LoadBalancer service can only forward traffic to ONE service. You cannot say "if path is /api, go to API service; if path is /web, go to frontend." Each service needs its own LB. |
+| Tied to Cloud Provider | If you switch from AWS to GCP, the LB behavior changes. You cannot control which type of LB is created (ALB vs NLB vs Classic). |
+| Does Not Work Everywhere | On Kind, Minikube, bare-metal — LoadBalancer type stays `<pending>` forever unless you install MetalLB or Cloud Provider KIND. |
 
-### 5.2 Advantages of Ingress
+### 5.3 How Ingress Solves These Problems
 
-| Advantage | Explanation |
+```
+  With Ingress: ONE Load Balancer handles ALL routing
+  ====================================================
+
+                          INTERNET
+                             |
+                             v
+                   +-------------------+
+                   |  ONE Load Balancer |  (cost: $20/month total)
+                   |  (created by       |
+                   |   Ingress          |
+                   |   Controller)      |
+                   +---+-------+---+---+
+                       |       |   |   |
+     host: shop.com ---+       |   |   +--- host: admin.com
+     path: /           |       |   |       path: /
+                       v       |   |       v
+              +-----------+    |   |    +-----------+
+              | Frontend  |    |   |    | Admin     |
+              | Service   |    |   |    | Service   |
+              +-----------+    |   |    +-----------+
+                               |   |
+        host: api.example.com -+   +- host: shop.com
+        path: /v1                     path: /images
+                               |       |
+                               v       v
+                       +-----------+ +----------+
+                       | API       | | Image    |
+                       | Service   | | Service  |
+                       +-----------+ +----------+
+```
+
+| Advantage | Detailed Explanation |
 |---|---|
-| Declarative | Full YAML-based configuration. Routing rules are version-controlled and reproducible. |
-| Cost Effective | One load balancer serves multiple services using host-based and path-based routing. |
-| Flexible | Choose any ingress controller (NGINX, AWS ALB, Traefik, Envoy, Kong). Not locked to one vendor. |
-| Host-Based Routing | Route traffic by domain name (shop.example.com, api.example.com, admin.example.com). |
-| Path-Based Routing | Route traffic by URL path (/api to backend, /web to frontend, /admin to admin panel). |
-| Not Dependent on CCM | Works on any Kubernetes cluster regardless of cloud provider or bare-metal setup. |
+| Declarative (GitOps-friendly) | ALL routing rules are in a YAML file. Host-based routing, path-based routing, TLS certificates, rate limits, custom headers — everything is defined in code, version-controlled in Git, reviewable in PRs. |
+| Cost Effective | ONE load balancer handles routing for ALL services. 10 services behind one LB = $20/month instead of $200/month. |
+| Host-Based Routing | `shop.example.com` goes to frontend, `api.example.com` goes to API, `admin.example.com` goes to admin panel — all through ONE LB. |
+| Path-Based Routing | `example.com/` goes to frontend, `example.com/api/v1` goes to API service, `example.com/admin` goes to admin panel. |
+| Flexible (Choose Your LB) | Want NGINX? Deploy NGINX Ingress Controller. Want AWS ALB? Deploy ALB Controller. Want Envoy? Use Istio. You pick the load balancer technology. |
+| Works Everywhere | Works on Kind (with Cloud Provider KIND), Minikube (with minikube tunnel), bare-metal (with MetalLB), and any cloud. |
 
-### 5.3 What is Ingress and Ingress Controller
+### 5.4 What is Ingress and Ingress Controller (Detailed)
 
-**Ingress Resource:**
-
-An Ingress is a Kubernetes API object that defines HTTP/HTTPS routing rules. It specifies which service should receive traffic based on the hostname and path in the incoming request. The Ingress resource itself does nothing without a controller.
-
-**Ingress Controller:**
-
-An Ingress Controller is a pod running in the cluster that watches for Ingress resources and configures the actual load balancer/reverse proxy accordingly. It is the implementation that makes Ingress rules work.
+**Key Concept:** Ingress Resource does NOTHING by itself. It is just a configuration document. It needs an Ingress Controller (a running pod) to read it and act on it.
 
 ```
-Ingress Resource (YAML)  --->  Ingress Controller (Pod)  --->  Load Balancer (Actual Routing)
-   (What you want)               (Reads and acts)                (What gets created)
+  Analogy:
+  ========
+  Ingress Resource  = Menu card (describes what you want)
+  Ingress Controller = Chef (reads the menu and actually cooks)
+  Load Balancer      = Plate of food (the actual result)
+
+  Without the Chef (Controller), the Menu (Ingress) is just paper.
 ```
 
-**Important:** Kubernetes is NOT opinionated about which Ingress Controller to use. You must install one yourself.
+**Ingress Resource Structure:**
 
-**Popular Ingress Controllers:**
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress
+  annotations:                          # Controller-specific configuration
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx               # Which controller should read this
+  rules:
+    - host: shop.example.com            # Host-based routing (optional)
+      http:
+        paths:
+          - path: /                     # Path-based routing
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service  # Target service
+                port:
+                  number: 8080          # Service port
+    - host: api.example.com
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 8080
+```
 
-| Controller | Maintained By | Best For |
-|-----------|---------------|----------|
-| NGINX Ingress | Kubernetes community | General purpose, widely adopted |
-| AWS ALB Controller | AWS | Native ALB integration on EKS |
-| Traefik | Traefik Labs | Auto-discovery, Let's Encrypt |
-| Kong | Kong Inc. | API Gateway features |
-| Istio Gateway | Istio project | Service mesh environments |
+| Field | Purpose |
+|-------|--------|
+| metadata.annotations | Controller-specific settings (TLS, rate limits, CORS, etc.). Different per controller. |
+| spec.ingressClassName | Tells which controller should process this Ingress. If you have NGINX + ALB controllers running, this selects one. |
+| spec.rules[].host | Route by domain name. If omitted, matches ALL hosts. |
+| spec.rules[].http.paths[].path | Route by URL path |
+| spec.rules[].http.paths[].pathType | `Prefix` (matches /foo and /foo/bar) or `Exact` (matches only /foo) |
+| backend.service.name | Kubernetes Service to forward traffic to |
+| backend.service.port.number | Port on that Service |
+
+**Ingress Controller Architecture:**
 
 ```
-  Ingress Resource + Ingress Controller Flow:
-  ============================================
-
-  DevOps Engineer writes:
-  +------------------+
-  | Ingress Resource |  (YAML file with routing rules)
-  | - host: shop.com |  (host-based routing)
-  | - path: /api     |  (path-based routing)
-  | - backend: svc   |  (target service)
-  | - annotations    |  (LB configuration)
-  +--------+---------+
-           |
-           | watches and reads
-           v
-  +--------------------+
-  | Ingress Controller |  (e.g., AWS ALB Controller, NGINX, Traefik)
-  | (Kubernetes Pod)   |
-  +--------+-----------+
-           |
-           | creates and configures
-           v
-  +------------------+
-  | Load Balancer    |  (AWS ALB, NGINX LB, F5, etc.)
-  | - Host routing   |
-  | - Path routing   |
-  | - TLS/HTTPS      |
-  +--------+---------+
-           |
-           | routes traffic to
-           v
-  +------------------+
-  | Kubernetes       |
-  | Service          |  (ClusterIP type is sufficient)
-  +--------+---------+
-           |
-           | forwards to pods via labels
-           v
-  +------------------+
-  | Backend Pods     |
-  +------------------+
-
-  Popular Ingress Controllers:
-  +----------------------+----------------------------+
-  | Ingress Controller   | Creates Load Balancer      |
-  +----------------------+----------------------------+
-  | AWS ALB Controller   | AWS Application LB         |
-  | NGINX Ingress        | NGINX Load Balancer        |
-  | Traefik              | Traefik Proxy              |
-  | Kong                 | Kong API Gateway           |
-  | Istio Gateway        | Envoy-based Gateway        |
-  +----------------------+----------------------------+
+  +------------------------------------------------------------------+
+  |  KUBERNETES CLUSTER                                               |
+  |                                                                    |
+  |  +-----------------------------+                                  |
+  |  | Ingress Controller Pod      |                                  |
+  |  | (e.g., NGINX, ALB, Traefik) |                                  |
+  |  |                             |                                  |
+  |  | 1. Watches K8s API for      |                                  |
+  |  |    Ingress resources        |                                  |
+  |  | 2. Reads routing rules      |                                  |
+  |  | 3. Configures load balancer |                                  |
+  |  | 4. Updates when rules change|                                  |
+  |  +-----------------------------+                                  |
+  |         |                                                          |
+  |         | creates/configures                                       |
+  |         v                                                          |
+  |  +-----------------------------+                                  |
+  |  | Load Balancer               |                                  |
+  |  | (NGINX reverse proxy,       |                                  |
+  |  |  AWS ALB, Envoy, etc.)      |                                  |
+  |  |                             |                                  |
+  |  | Routing table:              |                                  |
+  |  |  shop.com/     -> svc-A     |                                  |
+  |  |  api.com/v1    -> svc-B     |                                  |
+  |  |  admin.com/    -> svc-C     |                                  |
+  |  +-----------------------------+                                  |
+  |         |        |        |                                        |
+  |         v        v        v                                        |
+  |     svc-A    svc-B    svc-C                                       |
+  |     (pods)   (pods)   (pods)                                      |
+  +------------------------------------------------------------------+
 ```
+
+**Why ingressClassName matters:**
+
+In production, you might have multiple controllers:
+- Team A uses NGINX Ingress Controller
+- Team B uses AWS ALB Controller
+
+```yaml
+# Team A's Ingress (processed by NGINX)
+spec:
+  ingressClassName: nginx
+
+# Team B's Ingress (processed by ALB Controller)
+spec:
+  ingressClassName: alb
+```
+
+Each controller only watches Ingress resources that match its class name.
+
+### 5.5 LoadBalancer vs Ingress - When to Use Which
+
+| Scenario | Use LoadBalancer | Use Ingress |
+|----------|-----------------|------------|
+| Quick testing, single service | Yes | Overkill |
+| Production with multiple services | No (too expensive) | Yes |
+| Need host/path routing | Not possible | Yes |
+| Need TLS termination (HTTPS) | Manual config | Declarative via YAML |
+| Non-cloud cluster (Kind, bare-metal) | Needs MetalLB/CPK | Works natively |
+| TCP/UDP traffic (non-HTTP) | Yes (only option) | No (Ingress is HTTP only) |
+| Interview answer | Easy to configure, not scalable | Production-grade, declarative, cost-effective |
 
 ---
 
@@ -841,178 +976,345 @@ Ingress Resource (YAML)  --->  Ingress Controller (Pod)  --->  Load Balancer (Ac
 
 > Note: This section covers Ingress deployment for both Kind (lab) and EKS (production). The ALB Controller steps apply specifically to AWS EKS clusters.
 
-### 6.1 For Kind Cluster (Our Lab)
+### 6.1 For Kind Cluster - Deploy Ingress for Our E-Commerce Application
 
-With Cloud Provider KIND v0.9.0+, Ingress is natively supported. The cloud-provider-kind binary handles both LoadBalancer IPs and Ingress routing without needing any third-party ingress controller (like NGINX or Traefik).
+In this section, we deploy an Ingress resource for the OpenTelemetry Demo e-commerce application that is already running in our Kind cluster.
 
-**How Ingress Works on Kind (with Cloud Provider KIND):**
+#### 6.1.1 How Ingress Works on Kind (with Cloud Provider KIND)
+
+With Cloud Provider KIND v0.9.0+, you do NOT need to install any separate ingress controller (no NGINX, no Traefik). Cloud Provider KIND itself acts as the ingress controller.
 
 ```
-  You write:                    Cloud Provider KIND:           Result:
-  ==========                    ====================           =======
+  Cloud Provider KIND as Ingress Controller:
+  ==========================================
 
-  Ingress Resource              Watches for Ingress            Creates Docker container
-  (routing rules)    -------->  resources in cluster  -------> acting as reverse proxy
-                                                               with routing rules applied
-
-  +------------------+          +--------------------+         +------------------+
-  | kind: Ingress    |          | cloud-provider-kind|         | Docker container |
-  | rules:           |  reads   | (running on host)  | creates | IP: 172.18.0.x   |
-  |   /foo -> foo-svc| -------> |                    |-------> | Routes:          |
-  |   /bar -> bar-svc|          |                    |         |  /foo -> foo-svc |
-  +------------------+          +--------------------+         |  /bar -> bar-svc |
-                                                               +------------------+
+  +------------------------------------------------------------------+
+  |  EC2 HOST                                                         |
+  |                                                                    |
+  |  cloud-provider-kind (binary running on host)                     |
+  |      |                                                             |
+  |      | 1. Watches K8s API for Ingress resources                    |
+  |      | 2. Reads routing rules from Ingress YAML                    |
+  |      | 3. Creates a Docker container with reverse proxy            |
+  |      v                                                             |
+  |  +--------------------------------------------------------------+ |
+  |  |  Docker Network (kind: 172.18.0.0/16)                         | |
+  |  |                                                                | |
+  |  |  +---------------------+                                      | |
+  |  |  | Reverse Proxy       |  (Docker container created by CPK)   | |
+  |  |  | IP: 172.18.0.6      |                                      | |
+  |  |  | Port: 80            |                                      | |
+  |  |  |                     |                                      | |
+  |  |  | Routing:            |                                      | |
+  |  |  |  /foo -> foo-svc    |                                      | |
+  |  |  |  /bar -> bar-svc    |                                      | |
+  |  |  +----------+----------+                                      | |
+  |  |             |                                                  | |
+  |  |             | routes to K8s Services                           | |
+  |  |             v                                                  | |
+  |  |  +----------------+  +----------------+  +----------------+   | |
+  |  |  | control-plane  |  | worker-1       |  | worker-2       |   | |
+  |  |  | (pods/services)|  | (pods/services)|  | (pods/services)|   | |
+  |  |  +----------------+  +----------------+  +----------------+   | |
+  |  +--------------------------------------------------------------+ |
+  +------------------------------------------------------------------+
 ```
 
-**Important:** Unlike real cloud (where you need ALB Controller, NGINX Ingress, etc.), on Kind with Cloud Provider KIND v0.9.0+:
-- No ingress controller deployment needed
-- No Helm charts to install
-- Cloud Provider KIND itself acts as the ingress controller
-- It reads Ingress resources and creates routing containers automatically
+#### 6.1.2 The Port Conflict Problem
 
-**Prerequisites:**
-- Cloud Provider KIND running (`sudo cloud-provider-kind &`)
-- Control plane exclusion label removed (done in Part 3)
-
-**Step 1: Deploy the Ingress Example**
-
-```bash
-# Deploy test pods, services, and ingress resource from official kind docs
-kubectl apply -f https://kind.sigs.k8s.io/examples/ingress/usage.yaml
-```
-
-This creates:
-- `foo-app` pod (serves its hostname on port 8080)
-- `bar-app` pod (serves its hostname on port 8080)
-- `foo-service` (ClusterIP, selects foo-app)
-- `bar-service` (ClusterIP, selects bar-app)
-- `example-ingress` (routes `/foo` to foo-service, `/bar` to bar-service)
-
-**Step 2: Verify Ingress Gets an IP**
-
-```bash
-kubectl get ingress -w
-```
-
-Expected output (wait ~10-30 seconds):
-```
-NAME              CLASS    HOSTS   ADDRESS      PORTS   AGE
-example-ingress   <none>   *      172.18.0.6   80      30s
-```
-
-The `ADDRESS` field shows the Docker network IP assigned by Cloud Provider KIND.
-
-If ADDRESS stays empty, check:
-```bash
-# Is cloud-provider-kind running?
-ps aux | grep cloud-provider-kind
-
-# If not, start it
-sudo cloud-provider-kind &
-
-# Check its logs for errors
-docker logs $(docker ps --filter "name=kindccm" -q) 2>/dev/null
-```
-
-**Step 3: Test Path-Based Routing**
-
-```bash
-# Get the Ingress IP
-INGRESS_IP=$(kubectl get ingress example-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "Ingress IP: ${INGRESS_IP}"
-
-# Test /foo route (should return foo-app hostname)
-curl ${INGRESS_IP}/foo
-
-# Test /bar route (should return bar-app hostname)
-curl ${INGRESS_IP}/bar
-
-# Test non-existent path (should return 404)
-curl -I ${INGRESS_IP}/unknown
-```
-
-Expected:
-```
-$ curl 172.18.0.6/foo
-foo-app
-$ curl 172.18.0.6/bar
-bar-app
-```
-
-This confirms:
-- Ingress is working
-- Path-based routing is active (`/foo` goes to foo-service, `/bar` goes to bar-service)
-- Cloud Provider KIND is handling ingress natively
-
-**Step 4: Understand the Ingress YAML**
+Our Kind cluster config maps port 80 and 443 from EC2 host to the control-plane container:
 
 ```yaml
+# From our kind-istio-cluster.yaml:
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80          # EC2:80 -> control-plane:80
+      - containerPort: 443
+        hostPort: 443         # EC2:443 -> control-plane:443
+```
+
+**The issue:** Cloud Provider KIND creates its ingress proxy on port 80, but that port is already mapped to the control-plane container. So the ingress proxy container gets its OWN Docker IP (172.18.0.x) and listens on port 80 THERE.
+
+```
+  Port 80 mapping (current state):
+  ================================
+
+  EC2:80  ---------->  control-plane container:80  (via extraPortMappings)
+                       (nothing is listening on port 80 inside control-plane yet)
+
+  Ingress proxy:       172.18.0.6:80  (separate Docker container)
+                       (reachable from EC2 host, NOT from internet directly)
+```
+
+**Solutions to access Ingress from browser:**
+
+| Solution | How | When to Use |
+|----------|-----|------------|
+| curl from EC2 | `curl http://172.18.0.6/foo` | Quick testing on server |
+| Port-forward | `kubectl port-forward` | When you need browser access |
+| Istio Gateway on NodePort | Uses extraPortMappings 80/443 directly | Production setup (next module) |
+
+**Why port 80 on EC2 does not conflict:**
+- The extraPortMappings maps EC2:80 to control-plane-container:80
+- BUT nothing is listening on port 80 INSIDE the control-plane container yet
+- The Ingress proxy is a SEPARATE Docker container (not inside control-plane)
+- When we later install Istio, the Istio Ingress Gateway pod WILL listen on port 80 inside the control-plane (via NodePort), and THAT will use the extraPortMappings correctly
+
+#### 6.1.3 Deploy Ingress for Our E-Commerce Frontend
+
+**Step 1: Verify the application is running**
+
+```bash
+# All pods should be Running
+kubectl get pods | grep -c Running
+
+# Frontend proxy service exists
+kubectl get svc opentelemetry-demo-frontendproxy
+```
+
+**Step 2: Make sure frontendproxy is ClusterIP (not LoadBalancer)**
+
+```bash
+# If you previously patched it to LoadBalancer, revert it
+kubectl patch svc opentelemetry-demo-frontendproxy -p '{"spec": {"type": "ClusterIP"}}'
+```
+
+When using Ingress, the backend service should be ClusterIP. The Ingress controller/proxy handles external access.
+
+**Step 3: Create the Ingress resource for our app**
+
+```bash
+cat <<EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: example-ingress
+  name: ecommerce-ingress
 spec:
   rules:
     - http:
         paths:
-          - pathType: Prefix
-            path: /foo                    # URL path to match
+          - path: /
+            pathType: Prefix
             backend:
               service:
-                name: foo-service         # Route to this service
-                port:
-                  number: 8080            # On this port
-          - pathType: Prefix
-            path: /bar
-            backend:
-              service:
-                name: bar-service
+                name: opentelemetry-demo-frontendproxy
                 port:
                   number: 8080
+EOF
 ```
 
-| Field | Purpose |
-|-------|---------|
-| spec.rules | List of routing rules |
-| rules.http.paths | Path-based routing entries |
-| pathType: Prefix | Match any URL starting with this path |
-| backend.service.name | Target Kubernetes Service name |
-| backend.service.port.number | Target Service port |
+This tells the ingress: "Route ALL HTTP traffic on path `/` to the `opentelemetry-demo-frontendproxy` service on port 8080."
 
-**Step 5: Accessing Ingress from Your Browser (via EC2)**
-
-The Ingress IP (172.18.0.x) is only reachable from the EC2 host. To access from your browser:
+**Step 4: Wait for Ingress to get an IP**
 
 ```bash
-# Option A: Port-forward the ingress (if it's on port 80)
-# Since our kind config maps port 80 to host, any traffic to EC2:80 goes to control-plane:80
-# If ingress uses port 80 on the cluster, it should work via EC2-IP:80
-
-# Option B: Use kubectl port-forward to the backend service directly
-nohup kubectl port-forward svc/foo-service 9090:8080 --address=0.0.0.0 &>/dev/null &
-# Access: http://<EC2-IP>:9090
+kubectl get ingress ecommerce-ingress -w
 ```
 
-**Step 6: Cleanup Test Resources**
+Expected (wait 10-30 seconds):
+```
+NAME                 CLASS    HOSTS   ADDRESS      PORTS   AGE
+ecommerce-ingress    <none>   *       172.18.0.6   80      30s
+```
+
+If ADDRESS stays empty, check that cloud-provider-kind is running:
+```bash
+ps aux | grep cloud-provider-kind
+# If not running:
+sudo cloud-provider-kind &
+```
+
+**Step 5: Test from EC2 host**
 
 ```bash
-kubectl delete -f https://kind.sigs.k8s.io/examples/ingress/usage.yaml
+# Get the Ingress IP
+INGRESS_IP=$(kubectl get ingress ecommerce-ingress -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Ingress IP: ${INGRESS_IP}"
+
+# Test - should return HTML from the e-commerce frontend
+curl -s http://${INGRESS_IP}/ | head -20
+
+# Or just check HTTP status
+curl -o /dev/null -s -w "%{http_code}" http://${INGRESS_IP}/
+# Expected: 200
 ```
 
-**Comparison: Kind Ingress vs Production Ingress**
+**Step 6: Access from your browser (via port-forward)**
 
-| Aspect | Kind (Cloud Provider KIND) | Production (ALB/NGINX) |
-|--------|---------------------------|----------------------|
-| Ingress Controller | Built into cloud-provider-kind | Separate deployment (ALB Controller, NGINX, Traefik) |
-| IP assigned | Docker network IP (172.18.x.x) | Real public IP or DNS |
-| Host-based routing | Supported | Supported |
-| Path-based routing | Supported | Supported |
-| TLS/HTTPS | Limited | Full support with cert-manager |
-| Annotations | Minimal | Hundreds of options per controller |
-| Gateway API | Supported (standard channel) | Supported |
-| Access from internet | Via port-forward or NodePort mappings | Direct |
+Since the Ingress IP (172.18.0.x) is only reachable from the EC2 host, use port-forward for browser access:
 
-**Note for Istio:** When we install Istio, we will NOT use Kubernetes Ingress resource. Instead, Istio uses its own Gateway and VirtualService resources, which provide much richer traffic management (canary routing, fault injection, retries, etc.). The Istio Ingress Gateway will be exposed via NodePort on ports 80/443 that are already mapped in our kind cluster config.
+```bash
+# Forward EC2:8080 to the frontendproxy service
+nohup kubectl port-forward svc/opentelemetry-demo-frontendproxy 8080:8080 --address=0.0.0.0 &>/dev/null &
+
+echo "Access from browser: http://<EC2-ELASTIC-IP>:8080"
+```
+
+Or, forward the Ingress itself (if it supports it):
+```bash
+# Alternative: Forward to the Ingress port directly
+nohup kubectl port-forward svc/opentelemetry-demo-frontendproxy 80:8080 --address=0.0.0.0 &>/dev/null &
+echo "Access from browser: http://<EC2-ELASTIC-IP>"
+```
+
+Note: Port 80 on EC2 must be open in the Security Group.
+
+#### 6.1.4 Complete Flow Diagram for Our Application
+
+```
+  Method 1: curl from EC2 (direct to Ingress proxy)
+  ==================================================
+
+  EC2 terminal
+      |
+      | curl http://172.18.0.6/
+      v
+  Docker network (kind)
+      |
+      v
+  Ingress Proxy Container (172.18.0.6:80)
+      |
+      | routes path: / -> opentelemetry-demo-frontendproxy:8080
+      v
+  opentelemetry-demo-frontendproxy Service (ClusterIP)
+      |
+      | selector matches pod labels
+      v
+  frontendproxy Pod (Envoy reverse proxy)
+      |
+      | routes internally to frontend, cart, checkout, etc.
+      v
+  All 20+ microservice pods
+
+
+  Method 2: Browser via port-forward
+  ===================================
+
+  Your Browser
+      |
+      | http://3.111.87.86:8080
+      v
+  EC2 Elastic IP:8080
+      |
+      | kubectl port-forward (bridges network gap)
+      v
+  opentelemetry-demo-frontendproxy Service:8080
+      |
+      v
+  frontendproxy Pod
+      |
+      v
+  All microservices
+
+
+  Method 3: (Future - Istio) Browser via extraPortMappings
+  =========================================================
+
+  Your Browser
+      |
+      | http://3.111.87.86 (port 80)
+      v
+  EC2:80
+      |
+      | extraPortMappings: hostPort 80 -> containerPort 80
+      v
+  Kind control-plane container:80
+      |
+      | NodePort routing to Istio Ingress Gateway
+      v
+  Istio Ingress Gateway Pod (Envoy)
+      |
+      | VirtualService routing rules
+      v
+  opentelemetry-demo-frontendproxy Service
+      |
+      v
+  All microservices (with Envoy sidecars for mTLS, tracing, etc.)
+```
+
+#### 6.1.5 Add Host-Based Routing (Optional - Advanced)
+
+To test host-based routing without a real domain:
+
+```bash
+# Create Ingress with host rule
+cat <<EOF | kubectl apply -f -
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce-ingress-host
+spec:
+  rules:
+    - host: shop.local              # Only responds to this hostname
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: opentelemetry-demo-frontendproxy
+                port:
+                  number: 8080
+EOF
+
+# Wait for IP
+kubectl get ingress ecommerce-ingress-host -w
+
+# Test WITH correct host header (works)
+INGRESS_IP=$(kubectl get ingress ecommerce-ingress-host -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -H "Host: shop.local" http://${INGRESS_IP}/
+# Expected: 200 OK, returns HTML
+
+# Test WITHOUT host header (fails - 404)
+curl http://${INGRESS_IP}/
+# Expected: 404 Not Found (host doesn't match)
+
+# Test with wrong host (fails)
+curl -H "Host: wrong.com" http://${INGRESS_IP}/
+# Expected: 404 Not Found
+```
+
+This demonstrates host-based routing — the SAME IP returns different responses based on the `Host` header. In production, DNS resolves `shop.example.com` to the LB IP, so the browser automatically sends the correct Host header.
+
+#### 6.1.6 Cleanup Ingress Resources
+
+```bash
+kubectl delete ingress ecommerce-ingress
+kubectl delete ingress ecommerce-ingress-host 2>/dev/null
+```
+
+#### 6.1.7 Why We Will Use Istio Gateway Instead of Kubernetes Ingress
+
+Kubernetes Ingress has limitations:
+- Only supports HTTP/HTTPS (no TCP/gRPC natively)
+- Limited traffic management (no canary, no retries, no fault injection)
+- No mutual TLS between services
+- No distributed tracing
+
+Istio Gateway + VirtualService provides:
+- Full HTTP, HTTPS, TCP, gRPC support
+- Traffic shifting (90% v1, 10% v2)
+- Fault injection for testing
+- Retries with configurable policies
+- Circuit breaking
+- Mutual TLS everywhere
+- Distributed tracing with Jaeger
+- Metrics with Prometheus/Grafana
+
+```
+  Kubernetes Ingress:               Istio Gateway:
+  ===================               ==============
+  - Routes HTTP only                - Routes HTTP, HTTPS, TCP, gRPC
+  - Basic path/host routing         - Canary, blue-green, A/B routing
+  - No traffic policies             - Retries, timeouts, circuit breaking
+  - No security mesh                - mTLS between all services
+  - No observability                - Kiali, Grafana, Jaeger, Prometheus
+  - No fault injection              - Inject delays, errors for testing
+```
+
+This is WHY we are learning Istio — it replaces basic Ingress with a full-featured service mesh.
 
 ### 6.2 For EKS Cluster (Production Reference)
 
